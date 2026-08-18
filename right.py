@@ -9,10 +9,13 @@ import os
 import re
 import random
 import shutil
+import requests
 from DrissionPage import ChromiumPage, ChromiumOptions
 
 # 呆呆面板配置 - 从环境变量获取
 ENSHAN_COOKIE = os.getenv('ENSHAN_COOKIE', '')
+PUSHDEER_PUSHKEY = os.getenv('PUSHDEER_PUSHKEY', '')
+
 # 写死的配置
 USER_UID = "327034"  # 请替换为你的实际UID
 ENABLE_RANDOM_WAIT = False  # True=启用随机延迟, False=禁用
@@ -40,16 +43,49 @@ def force_kill_chrome():
     except:
         pass
 
-def system_notify(title, content):
-    """呆呆面板通知函数"""
+def pushdeer_notify(title, content):
+    """使用 PushDeer 推送通知"""
+    if not PUSHDEER_PUSHKEY:
+        print("⚠️ PUSHDEER_PUSHKEY 未设置，无法推送通知")
+        print(f"📨 [通知标题] {title}")
+        print(f"📨 [通知内容]\n{content}")
+        return False
+    
     try:
-        # 呆呆面板使用 print 输出，由面板捕获
-        print(f"📨 [通知] {title}")
-        print(f"📨 [内容] {content}")
-        print('✅ 通知已发送')
-        return True
+        # PushDeer API 地址（官方）
+        url = "https://api2.pushdeer.com/message/push"
+        
+        # 构建请求参数
+        params = {
+            "pushkey": PUSHDEER_PUSHKEY,
+            "text": title,
+            "desp": content,
+            "type": "markdown"  # 使用 markdown 格式，显示更美观
+        }
+        
+        print(f"📤 正在发送 PushDeer 通知...")
+        response = requests.post(url, data=params, timeout=10)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('code') == 0:
+                print("✅ PushDeer 通知发送成功")
+                return True
+            else:
+                print(f"❌ PushDeer 返回错误: {result.get('message', '未知错误')}")
+                return False
+        else:
+            print(f"❌ PushDeer 请求失败: HTTP {response.status_code}")
+            return False
+            
+    except requests.exceptions.Timeout:
+        print("❌ PushDeer 请求超时")
+        return False
+    except requests.exceptions.ConnectionError:
+        print("❌ PushDeer 连接失败，请检查网络")
+        return False
     except Exception as e:
-        print(f'⚠️ 通知发送失败: {e}')
+        print(f"❌ PushDeer 推送异常: {e}")
         return False
 
 def save_cookie_to_file(cookie_str):
@@ -57,7 +93,6 @@ def save_cookie_to_file(cookie_str):
     try:
         if not cookie_str:
             return
-        # 保存到文件，方便调试
         with open('enshan_cookie_backup.txt', 'w', encoding='utf-8') as f:
             f.write(cookie_str)
         print("💾 Cookie 已备份到 enshan_cookie_backup.txt")
@@ -84,13 +119,17 @@ def run_sign_in():
     # 1. 检查Cookie
     if not ENSHAN_COOKIE:
         print("❌ 错误: 环境变量 ENSHAN_COOKIE 未设置")
-        system_notify("恩山签到失败", "❌ 环境变量 ENSHAN_COOKIE 未设置，请检查配置")
+        pushdeer_notify("恩山签到失败", "❌ 环境变量 ENSHAN_COOKIE 未设置，请检查配置")
         return
     
     if not USER_UID:
         print("❌ 错误: USER_UID 未设置")
-        system_notify("恩山签到失败", "❌ USER_UID 未设置，请修改脚本")
+        pushdeer_notify("恩山签到失败", "❌ USER_UID 未设置，请修改脚本")
         return
+    
+    # 检查 PushDeer 配置（仅提醒，不中断执行）
+    if not PUSHDEER_PUSHKEY:
+        print("⚠️ 警告: PUSHDEER_PUSHKEY 未设置，将无法接收推送通知")
     
     # 随机延迟
     random_wait()
@@ -99,6 +138,7 @@ def run_sign_in():
     print(f"  - UID: {USER_UID[:2]}***{USER_UID[-2:] if len(USER_UID) > 4 else ''}")
     print(f"  - Cookie: {ENSHAN_COOKIE[:30]}...")
     print(f"  - 随机延迟: {'启用' if ENABLE_RANDOM_WAIT else '禁用'}")
+    print(f"  - PushDeer: {'已配置' if PUSHDEER_PUSHKEY else '未配置'}")
     print("=" * 50)
 
     # 3. 初始化浏览器配置
@@ -147,7 +187,7 @@ def run_sign_in():
         print(f"✅ 使用浏览器: {browser_path}")
     else:
         print("❌ 未找到 chromium/chrome 可执行文件，请检查依赖安装！")
-        system_notify("恩山签到错误", "❌ 未找到浏览器可执行文件")
+        pushdeer_notify("恩山签到错误", "❌ 未找到浏览器可执行文件")
         return
     
     # 4. 尝试启动浏览器
@@ -165,7 +205,7 @@ def run_sign_in():
     
     if not page:
         print("❌ 浏览器连续启动失败，放弃执行。")
-        system_notify("恩山签到错误", "❌ 浏览器连续启动失败，请检查系统环境")
+        pushdeer_notify("恩山签到错误", "❌ 浏览器连续启动失败，请检查系统环境")
         shutil.rmtree(rand_dir, ignore_errors=True)
         return
 
@@ -211,7 +251,7 @@ def run_sign_in():
             try:
                 if "登录" in page.ele('tag:body').text:
                     print("❌ 严重错误: Cookie 已失效，变为游客状态。")
-                    system_notify("恩山签到失败", "❌ Cookie 已失效，请更新环境变量 ENSHAN_COOKIE")
+                    pushdeer_notify("恩山签到失败", "❌ Cookie 已失效，请更新环境变量 ENSHAN_COOKIE")
                     return
             except: pass
         
@@ -225,7 +265,7 @@ def run_sign_in():
             
         if not formhash and not is_signed:
             print("❌ 错误: 无法提取 formhash")
-            system_notify("恩山签到失败", "❌ 无法提取 Formhash，可能页面结构已变化")
+            pushdeer_notify("恩山签到失败", "❌ 无法提取 Formhash，可能页面结构已变化")
             return
         
         if formhash:
@@ -333,27 +373,30 @@ def run_sign_in():
                 print(f"❌ UserID脱敏异常: {e}")
                 notify_user_id = "获取失败"
 
-            # 8.4 构建推送模版
+            # 8.4 构建推送模版（Markdown格式）
             notify_content = (
-                f"🎉 ===EnShan-Signin-Tool===\n"
-                f"✅ 签到成功！🎊\n"
-                f"======签到信息=====\n"
-                f"账号UID：{notify_user_id} \n"
-                f"今日积分：{today_points} \n"
-                f"连续签到：{continuous_days} 天 \n"
-                f"总签到天数：{total_days} 天 \n"
-                f"======积分统计=====\n"
-                f"总积分：{total_points} \n"
-                f"贡献分：{contribution} 分 \n"
-                f"恩山币：{enshan_coin} 币 \n"
-                f"=====结束===== \n"
-                f"💡By EnShan-Signin-Tool  \n"
+                f"## 🎉 恩山签到成功\n\n"
+                f"**签到信息**\n"
+                f"- 账号UID：`{notify_user_id}`\n"
+                f"- 今日积分：`{today_points}`\n"
+                f"- 连续签到：`{continuous_days}` 天\n"
+                f"- 总签到天数：`{total_days}` 天\n\n"
+                f"**积分统计**\n"
+                f"- 总积分：`{total_points}`\n"
+                f"- 贡献分：`{contribution}` 分\n"
+                f"- 恩山币：`{enshan_coin}` 币\n\n"
+                f"---\n"
+                f"💡 By EnShan-Signin-Tool"
             )
+            
+            # 简短标题（PushDeer显示用）
+            short_title = f"恩山签到成功 | 连续签到 {continuous_days} 天"
             
             print("=== 推送内容预览 ===")
             print(notify_content)
             
-            system_notify("恩山签到成功", notify_content)
+            # 发送 PushDeer 通知
+            pushdeer_notify(short_title, notify_content)
             
             # 备份Cookie
             final_cookies = get_cookies_safe(page)
@@ -362,12 +405,12 @@ def run_sign_in():
             
         else:
             print("❌ 签到失败")
-            system_notify("恩山签到失败", f"❌ 恩山签到失败：{sign_msg}")
+            pushdeer_notify("恩山签到失败", f"❌ 签到失败：{sign_msg}")
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        system_notify("恩山脚本错误", f"恩山脚本运行出错: {str(e)}")
+        pushdeer_notify("恩山脚本错误", f"❌ 脚本运行出错：\n```\n{str(e)}\n```")
         
     finally:
         try:
