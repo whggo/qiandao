@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # new Env("恩山论坛每日签到")
+# Python3依赖:DrissionPage,requests
+# Linux依赖:chromium,chromium-chromedriver
 
 import json
 import time
